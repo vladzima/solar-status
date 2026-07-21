@@ -8,7 +8,7 @@ Zero dependencies, no API key. Data comes straight from the
 [NOAA Space Weather Prediction Center](https://www.swpc.noaa.gov/) and
 [Open-Meteo geocoding](https://open-meteo.com/en/docs/geocoding-api).
 
-![solar-status showing current solar activity for San Francisco](screenshot.png)
+![solar-status showing current solar activity for San Francisco](https://raw.githubusercontent.com/vladzima/solar-status/main/screenshot.png)
 
 ## Usage
 
