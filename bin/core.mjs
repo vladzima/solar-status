@@ -32,6 +32,9 @@ export function cityLabel(city) {
 }
 
 export async function geocode(query, language = 'en') {
+  // Open-Meteo matches against names in the requested language, so a
+  // Cyrillic query under language=en finds nothing — search in Russian then.
+  if (/[а-яё]/i.test(query)) language = 'ru';
   const words = query.trim().split(/[,\s]+/).filter(Boolean);
   // Open-Meteo matches a single place-name prefix, so natural queries like
   // "Можайск Московская область" return nothing — retry with trailing
