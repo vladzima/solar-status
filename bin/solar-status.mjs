@@ -10,17 +10,10 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline/promises';
+import { VERSION, buildFacts, cityLabel, geocode, getData, severityIndex, sparkline } from './core.mjs';
 
-const VERSION = '1.0.0';
-const URLS = {
-  scales: 'https://services.swpc.noaa.gov/products/noaa-scales.json',
-  kp: 'https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json',
-  aurora: 'https://services.swpc.noaa.gov/json/ovation_aurora_latest.json',
-};
-const GEOCODE_URL = 'https://geocoding-api.open-meteo.com/v1/search';
 const CONFIG_DIR = path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'solar-status');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
-const CACHE_FILE = path.join(os.homedir(), '.cache', 'solar-status.json');
 const WIDTH = 66;
 
 const args = process.argv.slice(2);
@@ -82,35 +75,7 @@ function watchSeconds() {
   return Number.isFinite(requested) ? Math.max(60, requested) : 300;
 }
 
-async function fetchJson(url) {
-  const response = await fetch(url, {
-    headers: { 'user-agent': `solar-status/${VERSION}` },
-    signal: AbortSignal.timeout(10_000),
-  });
-  if (!response.ok) throw new Error(`HTTP ${response.status} from ${new URL(url).hostname}`);
-  return response.json();
-}
-
 // ── City selection ────────────────────────────────────────────────
-
-function cityLabel(city) {
-  const admin1 = city.admin1 === city.name ? '' : city.admin1;
-  return [city.name, admin1, city.country].filter(Boolean).join(', ');
-}
-
-async function geocode(query) {
-  const url = `${GEOCODE_URL}?name=${encodeURIComponent(query)}&count=10&language=en&format=json`;
-  const data = await fetchJson(url);
-  return (data.results ?? []).map((r) => ({
-    name: r.name,
-    admin1: r.admin1 ?? '',
-    country: r.country ?? r.country_code ?? '',
-    latitude: r.latitude,
-    longitude: r.longitude,
-    timezone: r.timezone ?? 'UTC',
-    population: r.population ?? 0,
-  }));
-}
 
 async function pickCity(query, rl) {
   const matches = await geocode(query);
@@ -176,57 +141,8 @@ async function resolveCity() {
 
 // ── Data ──────────────────────────────────────────────────────────
 
-async function readCache() {
-  try {
-    return JSON.parse(await fs.readFile(CACHE_FILE, 'utf8'));
-  } catch {
-    return {};
-  }
-}
-
-async function saveCache(data) {
-  try {
-    await fs.mkdir(path.dirname(CACHE_FILE), { recursive: true });
-    await fs.writeFile(CACHE_FILE, JSON.stringify(data));
-  } catch {
-    // Still works if the cache cannot be written.
-  }
-}
-
-async function getData() {
-  const cached = await readCache();
-  const entries = await Promise.all(
-    Object.entries(URLS).map(async ([key, url]) => {
-      try {
-        return [key, await fetchJson(url), false];
-      } catch (error) {
-        if (cached[key]) return [key, cached[key], true];
-        return [key, null, true, error.message];
-      }
-    })
-  );
-
-  const result = { fetchedAt: new Date().toISOString(), stale: [], errors: [] };
-  for (const [key, value, stale, error] of entries) {
-    result[key] = value;
-    if (stale) result.stale.push(key);
-    if (error) result.errors.push(`${key}: ${error}`);
-  }
-  if (result.scales || result.kp || result.aurora) await saveCache(result);
-  return result;
-}
-
-function number(value, fallback = 0) {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : fallback;
-}
-
 function severityLabel(n) {
-  if (n <= 0) return 'NORMAL';
-  if (n <= 2) return 'LOW';
-  if (n === 3) return 'ELEVATED';
-  if (n === 4) return 'HIGH';
-  return 'SEVERE';
+  return ['NORMAL', 'LOW', 'ELEVATED', 'HIGH', 'SEVERE'][severityIndex(n)];
 }
 
 function severityColor(n, text) {
@@ -234,24 +150,6 @@ function severityColor(n, text) {
   if (n <= 2) return style.yellow(text);
   if (n === 3) return style.red(text);
   return style.magenta(text);
-}
-
-function nearestAurora(aurora, city) {
-  if (!aurora?.coordinates?.length) return null;
-  const targetLon = Math.round((city.longitude + 360) % 360);
-  const targetLat = Math.round(city.latitude);
-  let nearest = null;
-  let bestDistance = Infinity;
-  for (const point of aurora.coordinates) {
-    const [lon, lat, probability] = point;
-    const lonDistance = Math.min(Math.abs(lon - targetLon), 360 - Math.abs(lon - targetLon));
-    const distance = lonDistance ** 2 + (lat - targetLat) ** 2;
-    if (distance < bestDistance) {
-      bestDistance = distance;
-      nearest = { probability: number(probability), longitude: lon, latitude: lat };
-    }
-  }
-  return nearest;
 }
 
 function formatLocalTime(date, timezone) {
@@ -276,10 +174,7 @@ function formatForecastDate(dateString) {
   }).format(date);
 }
 
-function practicalSummary({ current, forecastMax, radioMinor, radioMajor, radiation }, cityName) {
-  const nowMax = Math.max(current.g, current.r, current.s);
-  const futureMax = Math.max(forecastMax, radioMajor >= 25 ? 3 : 0, radioMinor >= 50 ? 1 : 0, radiation >= 25 ? 1 : 0);
-  const level = Math.max(nowMax, futureMax);
+function practicalSummary({ level, futureMax }, cityName) {
   const overall = severityLabel(level);
 
   let headline = `No meaningful disruption expected for everyday technology in ${cityName}.`;
@@ -319,41 +214,14 @@ function healthNotes({ gLevel, sLevel, latitude }) {
 }
 
 function buildModel(data, city) {
-  if (!data.scales) throw new Error('NOAA scale data is unavailable and no cache exists.');
-
-  const currentRaw = data.scales['0'] ?? {};
-  const current = {
-    g: number(currentRaw.G?.Scale),
-    r: number(currentRaw.R?.Scale),
-    s: number(currentRaw.S?.Scale),
-  };
-
-  const kpRows = Array.isArray(data.kp) ? data.kp : [];
-  const latestKp = kpRows.at(-1) ?? null;
-  const kpHistory = kpRows.slice(-8).map((row) => number(row.Kp));
-  const forecastRows = ['1', '2', '3'].map((key) => data.scales[key]).filter(Boolean);
-  const forecast = forecastRows.map((row) => ({
-    date: row.DateStamp,
-    g: number(row.G?.Scale),
-    radioMinor: number(row.R?.MinorProb),
-    radioMajor: number(row.R?.MajorProb),
-    radiation: number(row.S?.Prob),
-  }));
-
-  const forecastMax = Math.max(0, ...forecast.map((row) => row.g));
-  const radioMinor = Math.max(0, ...forecast.map((row) => row.radioMinor));
-  const radioMajor = Math.max(0, ...forecast.map((row) => row.radioMajor));
-  const radiation = Math.max(0, ...forecast.map((row) => row.radiation));
-  const summary = practicalSummary({ current, forecastMax, radioMinor, radioMajor, radiation }, city.name);
-  const localAurora = nearestAurora(data.aurora, city);
-  const gLevel = Math.max(current.g, forecastMax);
+  const facts = buildFacts(data, city);
+  const { current, forecastMax, radioMinor } = facts;
+  const summary = practicalSummary(facts, city.name);
 
   return {
     location: city,
     generatedAt: new Date().toISOString(),
-    noaaUpdatedAt: currentRaw.DateStamp && currentRaw.TimeStamp
-      ? `${currentRaw.DateStamp}T${currentRaw.TimeStamp}Z`
-      : null,
+    noaaUpdatedAt: facts.noaaUpdatedAt,
     status: summary.overall,
     statusLevel: summary.level,
     summary: summary.headline,
@@ -361,21 +229,21 @@ function buildModel(data, city) {
       geomagnetic: `G${current.g}`,
       radioBlackout: `R${current.r}`,
       radiationStorm: `S${current.s}`,
-      kp: latestKp ? number(latestKp.Kp) : null,
-      kpObservedAt: latestKp?.time_tag ? `${latestKp.time_tag}Z` : null,
-      kpHistory,
+      kp: facts.kp,
+      kpObservedAt: facts.kpObservedAt,
+      kpHistory: facts.kpHistory,
       levels: current,
     },
-    forecast,
+    forecast: facts.forecast,
     local: {
       consumerTech: forecastMax < 3 ? 'Normal operation expected' : 'Some disruption is possible',
       mobileAndInternet: forecastMax < 4 ? 'Normal operation expected' : 'Indirect disruption is possible',
       gps: forecastMax < 2 ? 'Normal; precision users monitor at G2+' : forecastMax < 3 ? 'Small errors possible for precision users' : 'Errors or degradation possible',
       power: forecastMax < 3 ? 'No household impact expected' : 'Grid operators may take precautions',
       hfRadio: radioMinor >= 50 ? `Minor/moderate blackout chance ${radioMinor}%` : `Low blackout chance ${radioMinor}%`,
-      auroraOverheadNextHour: localAurora?.probability ?? null,
+      auroraOverheadNextHour: facts.auroraProb,
     },
-    howItMayFeel: healthNotes({ gLevel, sLevel: current.s, latitude: city.latitude }),
+    howItMayFeel: healthNotes({ gLevel: facts.gLevel, sLevel: current.s, latitude: city.latitude }),
     staleFeeds: data.stale,
     errors: data.errors,
   };
@@ -406,11 +274,6 @@ function wrap(text, width) {
   }
   if (line) lines.push(line);
   return lines;
-}
-
-function sparkline(values) {
-  const blocks = '▁▂▃▄▅▆▇█';
-  return values.map((v) => blocks[Math.min(7, Math.max(0, Math.floor(v)))]).join('');
 }
 
 function render(model) {

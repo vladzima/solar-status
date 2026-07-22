@@ -44,6 +44,27 @@ Config lives at `~/.config/solar-status/config.json`; last successful NOAA
 responses are cached at `~/.cache/solar-status.json` so the tool degrades
 gracefully offline.
 
+## Telegram bot
+
+The same dashboard as a Telegram bot, still zero dependencies:
+
+```sh
+TELEGRAM_BOT_TOKEN="123:abc" solar-status-bot
+```
+
+Create a bot with [@BotFather](https://t.me/BotFather) to get a token. The bot
+asks for a shared location or a typed city name, replies with rich HTML
+messages (expandable health notes, inline refresh button), and answers in
+Russian when the sender's Telegram language is Russian, English otherwise.
+
+`/alerts` lets a user opt into storm notifications — any storm (G1+) or
+strong only (G3+), off by default. The bot checks NOAA every 3 hours and
+messages subscribers when activity reaches their level (current or 3-day
+forecast), once per storm rather than daily; a user who blocks the bot is
+opted out automatically. Chat state lives in
+`~/.config/solar-status/bot-chats.json`.
+Preview the message formatting without a token: `solar-status-bot --demo "Oslo"`.
+
 ## What the letters mean
 
 NOAA scales, each 0 (quiet) to 5 (extreme):

@@ -4,7 +4,8 @@
   "description": "Terminal dashboard for solar activity in your city: NOAA storm scales, Kp index, aurora odds, tech impact, and how it may make you feel. Zero dependencies.",
   "type": "module",
   "bin": {
-    "solar-status": "bin/solar-status.mjs"
+    "solar-status": "bin/solar-status.mjs",
+    "solar-status-bot": "bin/solar-bot.mjs"
   },
   "files": [
     "bin"
@@ -13,7 +14,8 @@
     "node": ">=18"
   },
   "scripts": {
-    "test": "node --check bin/solar-status.mjs && node bin/solar-status.mjs --help"
+    "test": "node --check bin/core.mjs && node --check bin/solar-status.mjs && node --check bin/solar-bot.mjs && node bin/solar-status.mjs --help",
+    "bot": "node bin/solar-bot.mjs"
   },
   "keywords": [
     "space-weather",
