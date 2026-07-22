@@ -32,6 +32,18 @@ export function cityLabel(city) {
 }
 
 export async function geocode(query, language = 'en') {
+  const words = query.trim().split(/[,\s]+/).filter(Boolean);
+  // Open-Meteo matches a single place-name prefix, so natural queries like
+  // "Можайск Московская область" return nothing — retry with trailing
+  // words dropped (at most 2, enough for "city + region" phrasing).
+  for (let n = words.length; n >= 1 && words.length - n <= 2; n--) {
+    const results = await geocodeQuery(words.slice(0, n).join(' '), language);
+    if (results.length) return results;
+  }
+  return [];
+}
+
+async function geocodeQuery(query, language) {
   const url = `${GEOCODE_URL}?name=${encodeURIComponent(query)}&count=10&language=${language}&format=json`;
   const data = await fetchJson(url);
   return (data.results ?? []).map((r) => ({
