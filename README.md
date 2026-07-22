@@ -46,7 +46,9 @@ gracefully offline.
 
 ## Telegram bot
 
-The same dashboard as a Telegram bot, still zero dependencies:
+The same dashboard as a Telegram bot — try it live at
+[@solar_status_tgbot](https://t.me/solar_status_tgbot), or run your own,
+still zero dependencies:
 
 ```sh
 TELEGRAM_BOT_TOKEN="123:abc" solar-status-bot
