@@ -7,7 +7,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-export const VERSION = '1.0.0';
+export const VERSION = '1.1.0';
 
 const URLS = {
   scales: 'https://services.swpc.noaa.gov/products/noaa-scales.json',
