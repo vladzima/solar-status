@@ -241,7 +241,13 @@ function buildModel(data, city) {
       gps: forecastMax < 2 ? 'Normal; precision users monitor at G2+' : forecastMax < 3 ? 'Small errors possible for precision users' : 'Errors or degradation possible',
       power: forecastMax < 3 ? 'No household impact expected' : 'Grid operators may take precautions',
       hfRadio: radioMinor >= 50 ? `Minor/moderate blackout chance ${radioMinor}%` : `Low blackout chance ${radioMinor}%`,
+      hfRadioNow: current.r >= 1
+        ? (facts.sunUp
+          ? `R${current.r} blackout in progress — your area is on the daylight side and affected`
+          : `R${current.r} blackout in progress — it's night at your location, no local impact`)
+        : null,
       auroraOverheadNextHour: facts.auroraProb,
+      auroraHint: (facts.auroraProb ?? 0) >= 10 ? (facts.dark ? 'dark now, worth a look' : 'check after dark') : null,
     },
     howItMayFeel: healthNotes({ gLevel: facts.gLevel, sLevel: current.s, latitude: city.latitude }),
     staleFeeds: data.stale,
@@ -296,6 +302,9 @@ function render(model) {
     `   Radio blackout ${severityColor(levels.r, model.current.radioBlackout)}` +
     `   Radiation ${severityColor(levels.s, model.current.radiationStorm)}`
   );
+  if (model.local.hfRadioNow) {
+    for (const line of wrap(model.local.hfRadioNow, WIDTH - 2)) console.log(`  ${line}`);
+  }
   console.log('');
   console.log(rule('NEXT 3 DAYS · UTC'));
   for (const row of model.forecast) {
@@ -314,7 +323,8 @@ function render(model) {
   console.log(`  Electricity        ${model.local.power}`);
   console.log(`  HF radio           ${model.local.hfRadio}`);
   if (model.local.auroraOverheadNextHour !== null) {
-    console.log(`  Aurora overhead    ${model.local.auroraOverheadNextHour}% model probability, next hour`);
+    const hint = model.local.auroraHint ? ` · ${model.local.auroraHint}` : '';
+    console.log(`  Aurora overhead    ${model.local.auroraOverheadNextHour}% model probability, next hour${hint}`);
   }
   console.log('');
   console.log(rule('HOW IT MAY FEEL'));

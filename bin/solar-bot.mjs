@@ -12,7 +12,7 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { VERSION, buildFacts, cityLabel, fetchJson, geocode, getData, severityIndex, sparkline } from './core.mjs';
+import { VERSION, buildFacts, cityLabel, fetchJson, geocode, getData, severityIndex, sparkline, sunElevation } from './core.mjs';
 
 const demoCity = process.argv.includes('--demo')
   ? process.argv[process.argv.indexOf('--demo') + 1] ?? 'Moscow'
@@ -57,6 +57,10 @@ const T = {
     now: 'Right now',
     kpNote: 'last 24 h',
     aurora: (p) => `🌌 Aurora overhead: ${p}% chance in the next hour`,
+    auroraNow: (p) => `🌌 Aurora: ${p}% chance overhead — it's dark at your location, worth a look`,
+    auroraLater: (p) => `🌌 Aurora: ${p}% chance overhead — check the sky after dark`,
+    rNowDay: (r) => `📻 R${r} blackout: your side of Earth is sunlit — HF radio is affected in your area now`,
+    rNowNight: (r) => `📻 R${r} blackout: it's night where you are — no local impact`,
     forecastTitle: 'Next 3 days (UTC)',
     techTitle: 'Tech impact',
     phones: (fm) => `📱 Phones &amp; internet: ${fm < 4 ? 'normal operation' : 'indirect disruption possible'}`,
@@ -112,6 +116,10 @@ const T = {
     now: 'Сейчас',
     kpNote: 'за 24 ч',
     aurora: (p) => `🌌 Полярное сияние: вероятность ${p}% в ближайший час`,
+    auroraNow: (p) => `🌌 Сияние: вероятность ${p}% над вами — у вас уже темно, стоит выглянуть`,
+    auroraLater: (p) => `🌌 Сияние: вероятность ${p}% над вами — посмотрите на небо после темноты`,
+    rNowDay: (r) => `📻 Радиопомехи R${r}: ваша сторона Земли освещена — КВ-связь у вас сейчас затронута`,
+    rNowNight: (r) => `📻 Радиопомехи R${r}: у вас ночь — локального влияния нет`,
     forecastTitle: 'Ближайшие 3 дня (UTC)',
     techTitle: 'Влияние на технику',
     phones: (fm) => `📱 Телефоны и интернет: ${fm < 4 ? 'без сбоев' : 'возможны косвенные сбои'}`,
@@ -224,7 +232,9 @@ function statusMessage(facts, place, t, locale) {
     `Kp <b>${kp}</b> <code>${sparkline(facts.kpHistory)}</code> <i>${t.kpNote}</i>`,
     `G${facts.current.g} · R${facts.current.r} · S${facts.current.s}`,
   ];
-  if (facts.auroraProb !== null && facts.auroraProb > 0) lines.push(t.aurora(facts.auroraProb));
+  if (facts.current.r >= 1) lines.push(facts.sunUp ? t.rNowDay(facts.current.r) : t.rNowNight(facts.current.r));
+  if (facts.auroraProb >= 10) lines.push(facts.dark ? t.auroraNow(facts.auroraProb) : t.auroraLater(facts.auroraProb));
+  else if (facts.auroraProb !== null && facts.auroraProb > 0) lines.push(t.aurora(facts.auroraProb));
   lines.push(
     '',
     `<b>${t.forecastTitle}</b>`,
@@ -484,7 +494,12 @@ if (demoCity) {
   assert.deepEqual(alertDecision(4, 3, 3), { notify: true, reset: false }); // escalation re-alerts
   assert.deepEqual(alertDecision(2, 3, 3), { notify: false, reset: true }); // re-arm after the storm
   assert.deepEqual(alertDecision(5, 0, 0), { notify: false, reset: true }); // alerts off
-  console.log('alert logic OK\n');
+
+  // Sun position: equator at equinox noon ≈ overhead; poles in solstice extremes.
+  assert.ok(sunElevation(0, 0, new Date('2026-03-20T12:00:00Z')) > 80);
+  assert.ok(sunElevation(90, 0, new Date('2026-06-21T12:00:00Z')) > 20);
+  assert.ok(sunElevation(90, 0, new Date('2026-12-21T12:00:00Z')) < -20);
+  console.log('alert + sun logic OK\n');
 
   const [match] = await geocode(demoCity);
   if (!match) {

@@ -132,6 +132,21 @@ export function nearestAurora(aurora, place) {
   return nearest;
 }
 
+/**
+ * Solar elevation in degrees (no equation-of-time term, ±1° is plenty for
+ * day/night checks). >0 sunlit; < -6 dark enough to see aurora.
+ */
+export function sunElevation(latitude, longitude, date = new Date()) {
+  const rad = Math.PI / 180;
+  const dayOfYear = (date.getTime() - Date.UTC(date.getUTCFullYear(), 0, 0)) / 86400000;
+  const declination = -23.44 * Math.cos(rad * (360 / 365) * (dayOfYear + 10));
+  const utcHours = date.getUTCHours() + date.getUTCMinutes() / 60;
+  const hourAngle = utcHours * 15 + longitude - 180;
+  const sinElevation = Math.sin(rad * latitude) * Math.sin(rad * declination)
+    + Math.cos(rad * latitude) * Math.cos(rad * declination) * Math.cos(rad * hourAngle);
+  return Math.asin(sinElevation) / rad;
+}
+
 export function sparkline(values) {
   const blocks = '▁▂▃▄▅▆▇█';
   return values.map((v) => blocks[Math.min(7, Math.max(0, Math.floor(v)))]).join('');
@@ -172,8 +187,12 @@ export function buildFacts(data, place) {
     radiation >= 25 ? 1 : 0
   );
 
+  const elevation = sunElevation(place.latitude, place.longitude);
+
   return {
     current,
+    sunUp: elevation > 0,
+    dark: elevation < -6,
     kp: latestKp ? number(latestKp.Kp) : null,
     kpObservedAt: latestKp?.time_tag ? `${latestKp.time_tag}Z` : null,
     kpHistory,
